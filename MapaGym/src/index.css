@@ -1,0 +1,8 @@
+@import "tailwindcss";
+
+/* This is how you add custom colors in Tailwind v4.
+   No more tailwind.config.js! 
+*/
+@theme {
+  --color-volt-green: #ccff00;
+}
