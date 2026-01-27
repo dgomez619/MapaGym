@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import Map, { Marker, GeolocateControl, NavigationControl } from 'react-map-gl';
 import type { MapRef } from 'react-map-gl'; // <-- Imported strictly as a Type
-import axios from 'axios';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { FaSearch, FaUserCircle, FaFilter, FaDumbbell, FaPlus } from 'react-icons/fa';
 import { motion } from 'framer-motion';
+import axiosClient from './api/axiosClient.js';
 
 // IMPORT YOUR COMPONENTS
 import AuthModal from './components/AuthModal';
@@ -76,17 +76,20 @@ export default function App() {
   const mapRef = useRef<MapRef>(null);
 
   // FETCH GYMS ON MOUNT
-  useEffect(() => {
-    const fetchGyms = async () => {
-      try {
-        const response = await axios.get('http://localhost:5001/api/gyms');
-        setGyms(response.data.data);
-      } catch (error) {
-        console.error("Error fetching gyms:", error);
-      }
-    };
-    fetchGyms();
-  }, []);
+useEffect(() => {
+  const fetchGyms = async () => {
+    try {
+      // NOTICE: You only write the endpoint ('/api/gyms') 
+      // The client automatically adds the base URL (http://localhost:5001 or Render URL)
+      const response = await axiosClient.get('/api/gyms');
+      
+      setGyms(response.data.data);
+    } catch (error) {
+      console.error("Error fetching gyms:", error);
+    }
+  };
+  fetchGyms();
+}, []); // <-- Make sure you have this empty array so it only runs once!
 
   const handlePinClick = (gym: Gym) => {
     setSelectedGym(gym);

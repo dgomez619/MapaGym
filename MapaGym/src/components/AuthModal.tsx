@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import axios from 'axios';
+// 1. CHANGE: Import your helper instead of generic axios
+import axiosClient from '../api/axiosClient';
 import { motion } from 'framer-motion';
 import { FaTimes, FaEnvelope, FaLock, FaUser } from 'react-icons/fa';
 
@@ -34,10 +35,13 @@ export default function AuthModal({ onClose, onLoginSuccess }: AuthModalProps) {
     setLoading(true);
     setError('');
 
+    // Notice we keep the path relative (starts with /)
     const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
 
     try {
-      const response = await axios.post(`http://localhost:5001${endpoint}`, formData);
+      // 2. CHANGE: Use axiosClient.post(endpoint, ...)
+      // We removed 'http://localhost:5001' because the client adds it automatically
+      const response = await axiosClient.post(endpoint, formData);
       
       const token = response.data.token;
       const user = response.data.user;

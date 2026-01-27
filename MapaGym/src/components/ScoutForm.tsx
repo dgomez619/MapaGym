@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import axios from 'axios';
+// 1. CHANGE: Import your helper instead of generic axios
+import axiosClient from '../api/axiosClient'; 
 import { motion } from 'framer-motion';
 import { FaTimes, FaDumbbell, FaCheck } from 'react-icons/fa';
 
@@ -58,7 +59,8 @@ export default function ScoutForm({ onClose, onGymAdded, userLocation }: ScoutFo
         return;
       }
 
-      // 2. Configure the Auth Header for Axios
+      // 2. Configure the Auth Header
+      // Note: We still pass this config because the token changes per user
       const config = {
         headers: {
           Authorization: `Bearer ${token}`
@@ -87,8 +89,9 @@ export default function ScoutForm({ onClose, onGymAdded, userLocation }: ScoutFo
         }
       };
 
-      // 4. Send to Backend WITH the Token
-      const response = await axios.post('http://localhost:5001/api/gyms', newGymData, config);
+      // 4. CHANGE: Use axiosClient and remove the hardcoded URL base
+      // The client already knows to check "Render" or "Localhost"
+      const response = await axiosClient.post('/api/gyms', newGymData, config);
       
       onGymAdded(response.data.data);
       onClose();
