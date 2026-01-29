@@ -29,22 +29,48 @@ interface ScoutFormProps {
   onClose: () => void;
   onGymAdded: (newGym: Gym) => void;
   userLocation: [number, number]; // [Longitude, Latitude]
+  initialName?: string;
+  initialWebsite?: string;
+  initialPhone?: string;
+  initialTags?: { [key: string]: string | undefined }; // Add this
 }
 
 // 3. THE COMPONENT
-export default function ScoutForm({ onClose, onGymAdded, userLocation }: ScoutFormProps) {
+export default function ScoutForm({ 
+  onClose, 
+  onGymAdded, 
+  userLocation, 
+  initialName, 
+  initialWebsite, 
+  initialPhone,
+  initialTags 
+}: ScoutFormProps) {
   const [loading, setLoading] = useState<boolean>(false);
   
   // Typed Form State
   const [formData, setFormData] = useState({
-    name: '',
+    name: initialName || '',
     description: '',
     dayPassPrice: '',
     hasSquatRack: false,
     hasDeadliftPlatform: false,
-    hasAC: false
+    hasAC: false,
+    website: initialWebsite || '',
+    phone: initialPhone || ''
   });
 
+  // 1. WATCH FOR PROP CHANGES
+  React.useEffect(() => {
+    setFormData(prev => ({
+      ...prev,
+      name: initialName || prev.name,
+      description: initialTags?.sport || prev.description,
+      website: initialWebsite || initialTags?.website || initialTags?.['contact:website'] || prev.website,
+      phone: initialPhone || initialTags?.phone || initialTags?.['contact:phone'] || prev.phone
+    }));
+  }, [initialName, initialWebsite, initialPhone, initialTags]);
+
+  // 4. FORM SUBMISSION HANDLER
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -60,7 +86,6 @@ export default function ScoutForm({ onClose, onGymAdded, userLocation }: ScoutFo
       }
 
       // 2. Configure the Auth Header
-      // Note: We still pass this config because the token changes per user
       const config = {
         headers: {
           Authorization: `Bearer ${token}`
@@ -86,11 +111,11 @@ export default function ScoutForm({ onClose, onGymAdded, userLocation }: ScoutFo
         amenities: {
           hasAC: formData.hasAC,
           hasShowers: false
-        }
+        },
+        website: formData.website || undefined,
+        phone: formData.phone || undefined
       };
 
-      // 4. CHANGE: Use axiosClient and remove the hardcoded URL base
-      // The client already knows to check "Render" or "Localhost"
       const response = await axiosClient.post('/api/gyms', newGymData, config);
       
       onGymAdded(response.data.data);
@@ -128,10 +153,20 @@ export default function ScoutForm({ onClose, onGymAdded, userLocation }: ScoutFo
               required
               type="text" 
               placeholder="e.g. Iron Paradise" 
+              value={formData.name}
               className="w-full bg-zinc-800 border border-zinc-700 rounded-lg p-3 text-white outline-none focus:border-volt-green"
               onChange={(e) => setFormData({...formData, name: e.target.value})}
             />
           </div>
+
+          {/* Show OSM Data Preview if available */}
+          {initialTags && (
+            <div className="bg-zinc-800/50 border border-zinc-700 rounded-lg p-3 text-xs">
+              {initialTags.opening_hours && (
+                <p className="text-white">Hours: {initialTags.opening_hours}</p>
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -140,10 +175,33 @@ export default function ScoutForm({ onClose, onGymAdded, userLocation }: ScoutFo
                 required
                 type="number" 
                 placeholder="0" 
+                value={formData.dayPassPrice}
                 className="w-full bg-zinc-800 border border-zinc-700 rounded-lg p-3 text-white outline-none focus:border-volt-green"
                 onChange={(e) => setFormData({...formData, dayPassPrice: e.target.value})}
               />
             </div>
+          </div>
+
+          <div>
+            <label className="text-xs text-zinc-400 uppercase tracking-wider font-bold">Website (Optional)</label>
+            <input 
+              type="url" 
+              placeholder="https://..." 
+              value={formData.website}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg p-3 text-white outline-none focus:border-volt-green"
+              onChange={(e) => setFormData({...formData, website: e.target.value})}
+            />
+          </div>
+
+          <div>
+            <label className="text-xs text-zinc-400 uppercase tracking-wider font-bold">Phone (Optional)</label>
+            <input 
+              type="tel" 
+              placeholder="+1 (555) 123-4567" 
+              value={formData.phone}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg p-3 text-white outline-none focus:border-volt-green"
+              onChange={(e) => setFormData({...formData, phone: e.target.value})}
+            />
           </div>
 
           <div>
@@ -152,6 +210,7 @@ export default function ScoutForm({ onClose, onGymAdded, userLocation }: ScoutFo
               required
               type="text" 
               placeholder="e.g. Hardcore, heavy metal playing..." 
+              value={formData.description}
               className="w-full bg-zinc-800 border border-zinc-700 rounded-lg p-3 text-white outline-none focus:border-volt-green"
               onChange={(e) => setFormData({...formData, description: e.target.value})}
             />
