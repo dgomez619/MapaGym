@@ -132,18 +132,25 @@ export default function ScoutForm({
     <motion.div 
       initial={{ opacity: 0 }} 
       animate={{ opacity: 1 }} 
-      className="absolute inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end md:items-center justify-center"
+      // 1. CLICK BACKDROP TO CLOSE
+      onClick={onClose}
+      className="absolute inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end md:items-center justify-center p-4"
     >
       <motion.div 
         initial={{ y: "100%" }} 
         animate={{ y: 0 }} 
-        className="bg-zinc-900 w-full md:w-96 rounded-t-3xl md:rounded-3xl p-6 shadow-2xl border border-zinc-800"
+        // 2. STOP PROPAGATION (Clicking inside shouldn't close it)
+        onClick={(e) => e.stopPropagation()}
+        className="bg-zinc-900 w-full md:w-96 rounded-t-3xl md:rounded-3xl p-6 shadow-2xl border border-zinc-800 max-h-[90vh] overflow-y-auto"
       >
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-bold text-volt-green flex items-center gap-2">
             <FaDumbbell /> Scout a Gym
           </h2>
-          <button onClick={onClose} className="text-zinc-400 hover:text-white"><FaTimes /></button>
+          {/* X BUTTON (Already existed, functionally same) */}
+          <button onClick={onClose} className="text-zinc-400 hover:text-white p-2">
+             <FaTimes size={20} />
+          </button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -244,13 +251,24 @@ export default function ScoutForm({
             </div>
           </div>
 
-          <button 
-            type="submit" 
-            disabled={loading}
-            className="w-full bg-volt-green text-black font-extrabold py-4 rounded-xl mt-6 shadow-[0_0_20px_rgba(204,255,0,0.3)] hover:scale-[1.02] transition-transform disabled:opacity-50"
-          >
-            {loading ? "Adding to Map..." : "Add to Map (+50 XP)"}
-          </button>
+          {/* 3. NEW BUTTON ROW: Cancel + Submit */}
+          <div className="flex gap-3 mt-6">
+            <button 
+              type="button"
+              onClick={onClose}
+              className="flex-1 bg-zinc-800 text-zinc-300 font-bold py-4 rounded-xl hover:bg-zinc-700 transition-colors"
+            >
+              Cancel
+            </button>
+            
+            <button 
+              type="submit" 
+              disabled={loading}
+              className="flex-2 bg-volt-green text-black font-extrabold py-4 rounded-xl shadow-[0_0_20px_rgba(204,255,0,0.3)] hover:scale-[1.02] transition-transform disabled:opacity-50"
+            >
+              {loading ? "Adding..." : "Add (+50 XP)"}
+            </button>
+          </div>
         </form>
       </motion.div>
     </motion.div>
