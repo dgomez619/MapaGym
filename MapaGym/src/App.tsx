@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
-import Map, { Marker, GeolocateControl, NavigationControl } from 'react-map-gl';
-import type { MapRef } from 'react-map-gl'; // <-- Imported strictly as a Type
+import Map, { Marker, GeolocateControl, NavigationControl} from 'react-map-gl';
+import type { MapRef } from 'react-map-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { FaSearch, FaUserCircle, FaFilter, FaDumbbell, FaPlus } from 'react-icons/fa';
+import { FaSearch, FaUserCircle, FaFilter, FaDumbbell, FaPlus, FaQuestion } from 'react-icons/fa'; // Added FaQuestion
 import { motion } from 'framer-motion';
 import axiosClient from './api/axiosClient.js';
+import { fetchShadowGyms } from './api/mapbox.ts'; // <--- IMPORT THE NEW HELPER
 
 // IMPORT YOUR COMPONENTS
 import AuthModal from './components/AuthModal';
@@ -13,7 +14,7 @@ import ScoutForm from './components/ScoutForm';
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
 // ==========================================
-// 1. TYPESCRIPT INTERFACES (The Blueprint)
+// 1. TYPESCRIPT INTERFACES
 // ==========================================
 interface User {
   id: string;
@@ -27,6 +28,7 @@ interface Gym {
   name: string;
   description: string;
   dayPassPrice: number;
+  isShadow?: boolean; // <--- NEW OPTIONAL FLAG
   location: {
     coordinates: [number, number]; // [Longitude, Latitude]
   };
@@ -41,14 +43,16 @@ interface Gym {
   };
 }
 
-// Helper function with types
+// Helper function with safety check for Shadow Gyms
 const getGymTags = (gym: Gym): string[] => {
   const tags: string[] = [];
-  if (gym.equipment.hasDeadliftPlatform) tags.push("Deadlift");
-  if (gym.equipment.hasSquatRack) tags.push("Squat Racks");
-  if (gym.equipment.maxDumbbellWeight > 0) tags.push(`${gym.equipment.maxDumbbellWeight}kg DBs`);
-  if (gym.amenities.hasAC) tags.push("A/C");
-  if (gym.amenities.hasShowers) tags.push("Showers");
+  if (gym.isShadow) return ["Unverified", "Tap to Scout"]; // Special tags for shadows
+  
+  if (gym.equipment?.hasDeadliftPlatform) tags.push("Deadlift");
+  if (gym.equipment?.hasSquatRack) tags.push("Squat Racks");
+  if (gym.equipment?.maxDumbbellWeight > 0) tags.push(`${gym.equipment.maxDumbbellWeight}kg DBs`);
+  if (gym.amenities?.hasAC) tags.push("A/C");
+  if (gym.amenities?.hasShowers) tags.push("Showers");
   return tags;
 };
 
@@ -65,33 +69,78 @@ export default function App() {
   const [isScoutModalOpen, setIsScoutModalOpen] = useState<boolean>(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   
-  // Auth State: LAZY INITIALIZATION
-  // Checks localStorage instantly on first load to prevent cascading renders
+  // New State for Pre-filling the form
+  const [scoutInitialData, setScoutInitialData] = useState<any>(null);
+
+  // Auth State
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     const savedUser = localStorage.getItem('gymFinderUser');
     return savedUser ? JSON.parse(savedUser) : null;
   });
   
-  // Map Ref with Mapbox Types
+  // Map Ref
   const mapRef = useRef<MapRef>(null);
 
-  // FETCH GYMS ON MOUNT
-useEffect(() => {
-  const fetchGyms = async () => {
-    try {
-      // NOTICE: You only write the endpoint ('/api/gyms') 
-      // The client automatically adds the base URL (http://localhost:5001 or Render URL)
-      const response = await axiosClient.get('/api/gyms');
-      
-      setGyms(response.data.data);
-    } catch (error) {
-      console.error("Error fetching gyms:", error);
-    }
-  };
-  fetchGyms();
-}, []); // <-- Make sure you have this empty array so it only runs once!
+
+
+  useEffect(() => {
+    let isMounted = true;
+    
+    const fetchData = async () => {
+      try {
+        const dbResponse = await axiosClient.get('/api/gyms');
+        const verifiedGyms = dbResponse.data.data;
+        const shadowGyms = await fetchShadowGyms(32.7157, -117.1611);
+        
+        const uniqueShadowGyms = shadowGyms.filter((shadow: any) => {
+          return !verifiedGyms.some((verified: Gym) => 
+            verified.name.toLowerCase() === shadow.name.toLowerCase()
+          );
+        });
+        
+        if (isMounted) {
+          setGyms([...verifiedGyms, ...uniqueShadowGyms]);
+        }
+      } catch (error) {
+        console.error("Error loading gyms:", error);
+      }
+    };
+    
+    fetchData();
+    
+    return () => {
+      isMounted = false;
+    };
+  }, []); 
 
   const handlePinClick = (gym: Gym) => {
+    // 🔍 DEBUG: See exactly what data this gym has
+    console.log("PIN CLICKED - Full Data:", gym);
+    // IF SHADOW GYM -> Open Scout Form immediately
+    if (gym.isShadow) {
+      if (!currentUser) {
+        setIsAuthModalOpen(true);
+        return;
+      }
+      
+      // 1. EXTRACT DATA SAFELY
+      // The Overpass data is hidden inside the 'tags' property we created in mapbox.js
+      // We check if 'tags' exists, otherwise default to empty strings
+      const rawTags = (gym as any).tags || {};
+
+      setScoutInitialData({
+        name: gym.name,
+        location: gym.location.coordinates,
+        website: rawTags.website || rawTags['contact:website'] || '', 
+        phone: rawTags.phone || rawTags['contact:phone'] || '',
+        tags: rawTags // Pass full tags object
+      });
+
+      setIsScoutModalOpen(true);
+      return;
+    }
+
+    // IF VERIFIED GYM -> Open Details Sheet
     setSelectedGym(gym);
     setIsSheetOpen(true);
     mapRef.current?.flyTo({
@@ -101,10 +150,11 @@ useEffect(() => {
     });
   };
 
-  const handleScoutClick = () => {
+  const handleManualScoutClick = () => {
     if (!currentUser) {
-      setIsAuthModalOpen(true); // Prompt login if not logged in
+      setIsAuthModalOpen(true);
     } else {
+      setScoutInitialData(null); // Clear any pre-fill data
       setIsScoutModalOpen(true);
     }
   };
@@ -136,10 +186,23 @@ useEffect(() => {
               }}
             >
               <div className="group flex flex-col items-center cursor-pointer transition-transform hover:scale-110">
-                <div className={`text-[10px] font-bold px-2 py-0.5 rounded shadow-lg mb-1 transition-colors ${selectedGym?._id === gym._id ? 'bg-volt-green text-black' : 'bg-zinc-800 text-white border border-zinc-600'}`}>
-                  ${gym.dayPassPrice}
-                </div>
-                <FaDumbbell className={`text-2xl drop-shadow-md transition-colors ${selectedGym?._id === gym._id ? 'text-volt-green' : 'text-zinc-400'}`} />
+                
+                {/* Price Tag (Only show if verified) */}
+                {!gym.isShadow && (
+                  <div className={`text-[10px] font-bold px-2 py-0.5 rounded shadow-lg mb-1 transition-colors ${selectedGym?._id === gym._id ? 'bg-volt-green text-black' : 'bg-zinc-800 text-white border border-zinc-600'}`}>
+                    ${gym.dayPassPrice}
+                  </div>
+                )}
+
+                {/* The Icon (Green Dumbbell vs Grey Question Mark) */}
+                {gym.isShadow ? (
+                  <div className="bg-zinc-700/80 p-1.5 rounded-full border border-zinc-500 backdrop-blur-sm">
+                     <FaQuestion className="text-xl text-zinc-300" />
+                  </div>
+                ) : (
+                  <FaDumbbell className={`text-2xl drop-shadow-md transition-colors ${selectedGym?._id === gym._id ? 'text-volt-green' : 'text-zinc-400'}`} />
+                )}
+                
               </div>
             </Marker>
           ))}
@@ -150,7 +213,6 @@ useEffect(() => {
       <div className="absolute top-0 left-0 right-0 z-10 p-4 pt-12 pointer-events-none">
         <div className="flex items-center gap-3 pointer-events-auto max-w-md mx-auto">
           
-          {/* PROFILE / LOGIN BUTTON (Uses currentUser) */}
           <button 
             onClick={() => !currentUser ? setIsAuthModalOpen(true) : alert("Profile coming soon!")}
             className={`p-3 rounded-full backdrop-blur-md border transition-colors ${currentUser ? 'bg-volt-green text-black border-volt-green' : 'bg-zinc-800/80 text-white border-zinc-700 hover:bg-zinc-700'}`}
@@ -173,16 +235,15 @@ useEffect(() => {
         </div>
       </div>
 
-      {/* SCOUT BUTTON */}
+      {/* SCOUT BUTTON (Manual) */}
       <button 
-        onClick={handleScoutClick}
+        onClick={handleManualScoutClick}
         className="absolute bottom-24 right-4 z-30 bg-volt-green text-black p-4 rounded-full shadow-[0_0_20px_rgba(204,255,0,0.5)] flex items-center gap-2 font-bold hover:scale-105"
       >
         <FaPlus /> Scout
       </button>
 
       {/* MODALS */}
-      {/* AUTH MODAL (Uses setCurrentUser) */}
       {isAuthModalOpen && (
         <AuthModal 
           onClose={() => setIsAuthModalOpen(false)} 
@@ -190,15 +251,19 @@ useEffect(() => {
         />
       )}
 
-      {isScoutModalOpen && (
-        <ScoutForm 
-          onClose={() => setIsScoutModalOpen(false)} 
-          onGymAdded={(newGym) => setGyms([...gyms, newGym])}
-          userLocation={[-117.1550, 32.7250]} 
-        />
-      )}
+     {isScoutModalOpen && (
+  <ScoutForm 
+    onClose={() => setIsScoutModalOpen(false)} 
+    onGymAdded={(newGym) => setGyms([...gyms, newGym])}
+    userLocation={scoutInitialData?.location || [-117.1550, 32.7250]} 
+    initialName={scoutInitialData?.name || ''}
+    initialWebsite={scoutInitialData?.website} 
+    initialPhone={scoutInitialData?.phone}
+    initialTags={scoutInitialData?.tags} 
+  />
+)}
 
-      {/* LAYER 3: BOTTOM SHEET (Uses getGymTags) */}
+      {/* LAYER 3: BOTTOM SHEET */}
       <motion.div 
         className="absolute bottom-0 left-0 right-0 z-20 bg-zinc-900 rounded-t-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.8)] border-t border-zinc-800"
         initial={{ y: "100%" }}
@@ -244,17 +309,27 @@ useEffect(() => {
               >
                 <div className="h-32 w-full overflow-hidden relative">
                    <div className="absolute inset-0 bg-gradient-to-t from-zinc-900 to-transparent z-10" />
-                   <img src="https://images.unsplash.com/photo-1534438327276-14e5300c3a48?q=80&w=500&auto=format&fit=crop" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt={gym.name} />
-                   <span className="absolute top-2 right-2 z-20 bg-black/60 backdrop-blur-md text-white text-xs font-bold px-2 py-1 rounded-md border border-white/10">
-                     ${gym.dayPassPrice} / Day
-                   </span>
+                   {/* Fallback image for Shadow Gyms */}
+                   <img 
+                      src={gym.isShadow ? "https://images.unsplash.com/photo-1571902943202-507ec2618e8f?q=80&w=500&auto=format&fit=crop" : "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?q=80&w=500&auto=format&fit=crop"} 
+                      className={`w-full h-full object-cover transition-transform duration-500 ${gym.isShadow ? 'grayscale opacity-50' : 'group-hover:scale-105'}`} 
+                      alt={gym.name} 
+                   />
+                   
+                   {!gym.isShadow && (
+                     <span className="absolute top-2 right-2 z-20 bg-black/60 backdrop-blur-md text-white text-xs font-bold px-2 py-1 rounded-md border border-white/10">
+                       ${gym.dayPassPrice} / Day
+                     </span>
+                   )}
                 </div>
 
                 <div className="p-4 relative z-20 -mt-6">
-                  <h3 className="font-bold text-white text-lg">{gym.name}</h3>
+                  <h3 className="font-bold text-white text-lg flex items-center gap-2">
+                    {gym.name}
+                    {gym.isShadow && <span className="text-[10px] bg-zinc-700 px-1.5 rounded text-zinc-400">UNVERIFIED</span>}
+                  </h3>
                   <p className="text-xs text-zinc-400 mt-1">{gym.description}</p>
                   
-                  {/* HERE IS WHERE getGymTags IS USED! */}
                   <div className="flex flex-wrap gap-2 mt-3">
                     {getGymTags(gym).map(tag => (
                       <span key={tag} className="text-[10px] uppercase tracking-wider font-semibold bg-zinc-900/80 text-zinc-400 px-2 py-1 rounded border border-zinc-700">
@@ -263,9 +338,10 @@ useEffect(() => {
                     ))}
                   </div>
                   
+                  {/* Different Button for Shadow Gyms */}
                   {selectedGym?._id === gym._id && (
-                    <button className="w-full mt-4 bg-volt-green text-black font-bold py-3 rounded-xl hover:opacity-90 transition-opacity">
-                      View Details & Book
+                    <button className={`w-full mt-4 font-bold py-3 rounded-xl hover:opacity-90 transition-opacity ${gym.isShadow ? 'bg-white text-black' : 'bg-volt-green text-black'}`}>
+                      {gym.isShadow ? "Claim & Scout This Gym" : "View Details & Book"}
                     </button>
                   )}
                 </div>
