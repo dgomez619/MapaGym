@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { FaTimes, FaDumbbell, FaMedal, FaChartLine } from 'react-icons/fa';
 import { IoHardwareChip } from "react-icons/io5";
 import { getMyProfile } from '../api/user'; // <--- Import the helper
+import { useState, useEffect } from 'react';
 
 interface User {
   id: string;
