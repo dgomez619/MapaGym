@@ -1,0 +1,5 @@
+# Root ignore rules
+notes.txt
+gym-finder-api/
+**/.env
+**/.env.*
