@@ -97,7 +97,6 @@ export default function ScoutForm({
         name: formData.name,
         description: formData.description,
         dayPassPrice: Number(formData.dayPassPrice),
-        owner: JSON.parse(localStorage.getItem('gymFinderUser') || '{}').id, 
         location: {
           type: "Point",
           coordinates: userLocation, 
