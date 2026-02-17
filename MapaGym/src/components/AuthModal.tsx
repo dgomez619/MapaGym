@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import axiosClient from '../api/axiosClient';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion} from 'framer-motion';
 import { FaTimes, FaEnvelope, FaLock, FaUser, FaBuilding, FaDumbbell } from 'react-icons/fa';
 
 interface User {
