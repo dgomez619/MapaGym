@@ -7,10 +7,10 @@ import {
 import { IoHardwareChip } from "react-icons/io5";
 
 interface User {
-  id: string;
+  _id: string;
   name: string;
   email: string;
-  role: string;
+  role: 'admin' | 'owner' | 'user';
 }
 
 interface DashboardProps {
@@ -30,7 +30,7 @@ export default function OwnerDashboard({ user, onLogout }: DashboardProps) {
     { id: 2, type: 'warning', message: 'Sauna temperature high alert', time: '2h ago' },
   ];
 
-  const MenuItem = ({ id, icon: Icon, label }: { id: string, icon: any, label: string }) => (
+  const MenuItem = ({ id, icon: Icon, label }: { id: string, icon: React.ElementType, label: string }) => (
     <button 
       onClick={() => { setActiveTab(id); setIsMobileMenuOpen(false); }}
       className={`w-full flex items-center gap-4 p-4 rounded-xl transition-all mb-2 font-bold uppercase tracking-wider text-xs

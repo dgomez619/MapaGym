@@ -26,7 +26,7 @@ interface OverpassResponse {
   elements: OverpassElement[];
 }
 
-interface ShadowGym {
+export interface ShadowGym {
   _id: string;
   name: string;
   description: string;

@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
+import axios from 'axios';
 import axiosClient from '../api/axiosClient';
 import { motion} from 'framer-motion';
 import { FaTimes, FaEnvelope, FaLock, FaUser, FaBuilding, FaDumbbell } from 'react-icons/fa';
 
 interface User {
-  id: string;
+  _id: string;
   name: string;
   email: string;
-  role: string;
+  role: 'admin' | 'owner' | 'user';
 }
 
 interface AuthModalProps {
@@ -57,8 +58,12 @@ export default function AuthModal({ onClose, onLoginSuccess }: AuthModalProps) {
 
       onLoginSuccess(user);
       onClose();
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Something went wrong. Try again.');
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        setError(err.response?.data?.error || 'Something went wrong. Try again.');
+      } else {
+        setError('Something went wrong. Try again.');
+      }
     } finally {
       setLoading(false);
     }

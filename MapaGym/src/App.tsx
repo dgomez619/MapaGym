@@ -29,10 +29,10 @@ const GEOLOCATION_RETRY_OPTIONS: PositionOptions = {
 
 // --- INTERFACES ---
 interface User {
-  id: string;
+  _id: string;
   name: string;
   email: string;
-  role: string;
+  role: 'admin' | 'owner' | 'user';
 }
 
 interface Gym {
@@ -53,13 +53,21 @@ interface Gym {
     hasAC: boolean;
     hasShowers: boolean;
   };
-  tags?: any;
+  tags?: Record<string, string | undefined>;
 }
 
 interface SearchSuggestion {
   id: string;
   place_name: string;
   center: [number, number];
+}
+
+interface ScoutInitialData {
+  name: string;
+  location: [number, number];
+  website: string;
+  phone: string;
+  tags: Record<string, string | undefined>;
 }
 
 // --- HELPER ---
@@ -93,7 +101,7 @@ export default function App() {
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   
-  const [scoutInitialData, setScoutInitialData] = useState<any>(null);
+  const [scoutInitialData, setScoutInitialData] = useState<ScoutInitialData | null>(null);
 
  // REAL LOGIC: Check Local Storage for logged in user
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
@@ -126,7 +134,7 @@ export default function App() {
         count: shadowGyms.length,
       });
 
-      const uniqueShadowGyms = shadowGyms.filter((shadow: any) => {
+      const uniqueShadowGyms = shadowGyms.filter((shadow) => {
         return !verifiedGyms.some((verified: Gym) =>
           verified.name.toLowerCase() === shadow.name.toLowerCase()
         );
@@ -279,8 +287,8 @@ export default function App() {
       setScoutInitialData({
         name: gym.name,
         location: gym.location.coordinates,
-        website: rawTags.website || rawTags['contact:website'],
-        phone: rawTags.phone || rawTags['contact:phone'],
+        website: rawTags.website || rawTags['contact:website'] || '',
+        phone: rawTags.phone || rawTags['contact:phone'] || '',
         tags: rawTags
       });
       setIsScoutModalOpen(true);
