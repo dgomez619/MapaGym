@@ -12,8 +12,20 @@ import AuthModal from './components/AuthModal';
 import ScoutForm from './components/ScoutForm';
 import ProfileModal from './components/ProfileModal';
 import OwnerDashboard from './components/OwnerDashboard';
+import AdminDashboard from './components/AdminDashboard';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
+const GEOLOCATION_OPTIONS: PositionOptions = {
+  enableHighAccuracy: false,
+  timeout: 20000,
+  maximumAge: 60000,
+};
+const GEOLOCATION_RETRY_OPTIONS: PositionOptions = {
+  ...GEOLOCATION_OPTIONS,
+  enableHighAccuracy: true,
+  timeout: 15000,
+  maximumAge: 0,
+};
 
 // --- INTERFACES ---
 interface User {
@@ -67,6 +79,7 @@ const getGymTags = (gym: Gym): string[] => {
 export default function App() {
   const [gyms, setGyms] = useState<Gym[]>([]);
   const [selectedGym, setSelectedGym] = useState<Gym | null>(null);
+  const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
 
   // UI State
   const [isSheetOpen, setIsSheetOpen] = useState<boolean>(false);
@@ -94,10 +107,24 @@ export default function App() {
   // 1. REUSABLE FETCH FUNCTION
   // ===============================================
   const loadGymsAtLocation = useCallback(async (lat: number, lng: number) => {
+    const startedAt = performance.now();
+    console.log('[loadGymsAtLocation] start', { lat, lng, at: new Date().toISOString() });
+
     try {
-      const dbResponse = await axiosClient.get('/api/gyms');
+      const dbStartedAt = performance.now();
+      const dbResponse = await axiosClient.get('/api/gyms', { timeout: 8000 });
       const verifiedGyms = dbResponse.data.data;
-      const shadowGyms = await fetchShadowGyms(lat, lng);
+      console.log('[loadGymsAtLocation] verified done', {
+        tookMs: Math.round(performance.now() - dbStartedAt),
+        count: verifiedGyms.length,
+      });
+
+      const shadowStartedAt = performance.now();
+      const shadowGyms = await fetchShadowGyms(lat, lng, { timeoutMs: 10000 });
+      console.log('[loadGymsAtLocation] shadow done', {
+        tookMs: Math.round(performance.now() - shadowStartedAt),
+        count: shadowGyms.length,
+      });
 
       const uniqueShadowGyms = shadowGyms.filter((shadow: any) => {
         return !verifiedGyms.some((verified: Gym) =>
@@ -106,8 +133,13 @@ export default function App() {
       });
 
       setGyms([...verifiedGyms, ...uniqueShadowGyms]);
+      console.log('[loadGymsAtLocation] done', {
+        totalMs: Math.round(performance.now() - startedAt),
+        totalGyms: verifiedGyms.length + uniqueShadowGyms.length,
+      });
     } catch (error) {
-      console.error("Error loading gyms:", error);
+      console.error('Error loading gyms:', error);
+      setGyms([]);
     }
   }, []);
 
@@ -131,32 +163,84 @@ export default function App() {
     }
   };
 
-  const selectLocation = (lat: number, lng: number, placeName: string) => {
+  const selectLocation = async (lat: number, lng: number, placeName: string) => {
     mapRef.current?.flyTo({ center: [lng, lat], zoom: 13, duration: 2000 });
-    loadGymsAtLocation(lat, lng);
+    await loadGymsAtLocation(lat, lng);
     setSearchQuery(placeName);
     setSuggestions([]);
     setIsSearching(false);
   };
 
   const handleUseCurrentLocation = () => {
+    if (isLocating) return;
+
+    const clickStartedAt = performance.now();
+    console.log('[UseCurrentLocation] click', {
+      at: new Date().toISOString(),
+      queryLength: searchQuery.length,
+      suggestionsCount: suggestions.length,
+      isSearching,
+      isLocating,
+    });
+
     if (!navigator.geolocation) return alert("Geolocation not supported");
 
     setIsLocating(true);
     setSuggestions([]);
 
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
+    const stuckGuardTimer = window.setTimeout(() => {
+      setIsLocating(false);
+      console.warn('[UseCurrentLocation] guard timeout triggered');
+    }, 45000);
+
+    const getPosition = (options: PositionOptions) =>
+      new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, options);
+      });
+
+    void (async () => {
+      try {
+        let pos: GeolocationPosition;
+
+        try {
+          pos = await getPosition(GEOLOCATION_OPTIONS);
+        } catch (firstError) {
+          const geoError = firstError as GeolocationPositionError;
+          if (geoError.code !== 3) {
+            throw geoError;
+          }
+
+          console.warn('[UseCurrentLocation] first geolocation attempt timed out, retrying', {
+            tookMs: Math.round(performance.now() - clickStartedAt),
+          });
+          pos = await getPosition(GEOLOCATION_RETRY_OPTIONS);
+        }
+
         const { latitude, longitude } = pos.coords;
-        selectLocation(latitude, longitude, "Current Location");
-        setIsLocating(false);
-      },
-      (err) => {
-        console.error(err);
-        alert("Could not find location");
+        setUserLocation([longitude, latitude]);
+        console.log('[UseCurrentLocation] geolocation success', {
+          tookMs: Math.round(performance.now() - clickStartedAt),
+          latitude,
+          longitude,
+        });
+
+        await selectLocation(latitude, longitude, 'Current Location');
+        console.log('[UseCurrentLocation] complete', {
+          totalMs: Math.round(performance.now() - clickStartedAt),
+        });
+      } catch (error) {
+        const geoError = error as GeolocationPositionError;
+        console.error('[UseCurrentLocation] geolocation error', {
+          code: geoError?.code,
+          message: geoError?.message,
+          tookMs: Math.round(performance.now() - clickStartedAt),
+        });
+        alert('Could not find location. Please check location permissions and try again.');
+      } finally {
+        window.clearTimeout(stuckGuardTimer);
         setIsLocating(false);
       }
-    );
+    })();
   };
 
   // ===============================================
@@ -165,14 +249,16 @@ export default function App() {
   useEffect(() => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (position) => {
+        async (position) => {
           const { latitude, longitude } = position.coords;
+          setUserLocation([longitude, latitude]);
           mapRef.current?.flyTo({ center: [longitude, latitude], zoom: 14 });
-          loadGymsAtLocation(latitude, longitude);
+          await loadGymsAtLocation(latitude, longitude);
         },
         () => {
           loadGymsAtLocation(32.7157, -117.1611); // Fallback San Diego
-        }
+        },
+        GEOLOCATION_OPTIONS
       );
     } else {
       loadGymsAtLocation(32.7157, -117.1611);
@@ -223,11 +309,12 @@ export default function App() {
       return;
     }
 
-    // 🔴 REMOVED OWNER DASHBOARD LOGIC FROM HERE 🔴
+    //  REMOVED OWNER DASHBOARD LOGIC FROM HERE 
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
+        setUserLocation([longitude, latitude]);
         setScoutInitialData({
           name: '',
           location: [longitude, latitude],
@@ -244,14 +331,29 @@ export default function App() {
         alert("Unable to retrieve location.");
         setIsLocating(false);
       },
-      { enableHighAccuracy: true }
+      { ...GEOLOCATION_OPTIONS, enableHighAccuracy: true }
     );
   };
 
   // ===============================================
-  // 🔴 DASHBOARD ROUTING LOGIC (MOVED HERE) 🔴
+  //  DASHBOARD ROUTING LOGIC (MOVED HERE) 
   // ===============================================
   // This executes BEFORE the map is rendered.
+  // OVERWATCH: Admin Gateway
+  if (currentUser?.role === 'admin') {
+    return (
+      <AdminDashboard
+        user={currentUser}
+        onLogout={() => {
+          localStorage.removeItem('gymFinderUser');
+          localStorage.removeItem('gymFinderToken');
+          setCurrentUser(null);
+        }}
+      />
+    );
+  }
+
+  // COMMAND CENTER: Owner Gateway
   if (currentUser?.role === 'owner') {
     return (
       <OwnerDashboard
@@ -282,6 +384,19 @@ export default function App() {
         >
           <GeolocateControl position="top-right" />
           <NavigationControl position="top-right" showCompass={false} />
+
+          {userLocation && (
+            <Marker
+              longitude={userLocation[0]}
+              latitude={userLocation[1]}
+              anchor="center"
+            >
+              <div className="relative">
+                <div className="w-5 h-5 rounded-full bg-volt-green/30 animate-ping" />
+                <div className="absolute inset-0 m-auto w-3 h-3 rounded-full bg-volt-green border border-black" />
+              </div>
+            </Marker>
+          )}
 
           {gyms.map((gym) => (
             <Marker
