@@ -110,45 +110,82 @@ export default function App() {
   });
 
   const mapRef = useRef<MapRef>(null);
+  const inFlightLoadRef = useRef<{ key: string; promise: Promise<void> } | null>(null);
+  const latestLoadIdRef = useRef(0);
+  const hasInitializedLocationRef = useRef(false);
 
   // ===============================================
   // 1. REUSABLE FETCH FUNCTION
   // ===============================================
   const loadGymsAtLocation = useCallback(async (lat: number, lng: number) => {
+    const locationKey = `${lat.toFixed(3)}:${lng.toFixed(3)}`;
+
+    if (inFlightLoadRef.current?.key === locationKey) {
+      console.log('[loadGymsAtLocation] joining in-flight load', { lat, lng, locationKey });
+      return inFlightLoadRef.current.promise;
+    }
+
+    const loadId = ++latestLoadIdRef.current;
     const startedAt = performance.now();
     console.log('[loadGymsAtLocation] start', { lat, lng, at: new Date().toISOString() });
 
-    try {
-      const dbStartedAt = performance.now();
-      const dbResponse = await axiosClient.get('/api/gyms', { timeout: 8000 });
-      const verifiedGyms = dbResponse.data.data;
-      console.log('[loadGymsAtLocation] verified done', {
-        tookMs: Math.round(performance.now() - dbStartedAt),
-        count: verifiedGyms.length,
-      });
+    const loadPromise = (async () => {
+      try {
+        const dbStartedAt = performance.now();
+        const shadowStartedAt = performance.now();
 
-      const shadowStartedAt = performance.now();
-      const shadowGyms = await fetchShadowGyms(lat, lng, { timeoutMs: 10000 });
-      console.log('[loadGymsAtLocation] shadow done', {
-        tookMs: Math.round(performance.now() - shadowStartedAt),
-        count: shadowGyms.length,
-      });
+        const verifiedPromise = axiosClient
+          .get('/api/gyms', { timeout: 8000 })
+          .then((dbResponse) => {
+            const data: Gym[] = dbResponse.data.data || [];
+            console.log('[loadGymsAtLocation] verified done', {
+              tookMs: Math.round(performance.now() - dbStartedAt),
+              count: data.length,
+            });
+            if (loadId === latestLoadIdRef.current) {
+              setGyms(data);
+            }
+            return data;
+          });
 
-      const uniqueShadowGyms = shadowGyms.filter((shadow) => {
-        return !verifiedGyms.some((verified: Gym) =>
-          verified.name.toLowerCase() === shadow.name.toLowerCase()
-        );
-      });
+        const shadowPromise = fetchShadowGyms(lat, lng, { timeoutMs: 4500 }).then((data) => {
+          console.log('[loadGymsAtLocation] shadow done', {
+            tookMs: Math.round(performance.now() - shadowStartedAt),
+            count: data.length,
+          });
+          return data;
+        });
 
-      setGyms([...verifiedGyms, ...uniqueShadowGyms]);
-      console.log('[loadGymsAtLocation] done', {
-        totalMs: Math.round(performance.now() - startedAt),
-        totalGyms: verifiedGyms.length + uniqueShadowGyms.length,
-      });
-    } catch (error) {
-      console.error('Error loading gyms:', error);
-      setGyms([]);
-    }
+        const [verifiedGyms, shadowGyms] = await Promise.all([verifiedPromise, shadowPromise]);
+
+        // Ignore stale results if a newer location request started in the meantime
+        if (loadId !== latestLoadIdRef.current) return;
+
+        const uniqueShadowGyms = shadowGyms.filter((shadow) => {
+          return !verifiedGyms.some(
+            (verified: Gym) => verified.name.toLowerCase() === shadow.name.toLowerCase()
+          );
+        }) as Gym[];
+
+        setGyms([...verifiedGyms, ...uniqueShadowGyms]);
+        console.log('[loadGymsAtLocation] done', {
+          totalMs: Math.round(performance.now() - startedAt),
+          totalGyms: verifiedGyms.length + uniqueShadowGyms.length,
+        });
+      } catch (error) {
+        console.error('Error loading gyms:', error);
+        if (loadId === latestLoadIdRef.current) {
+          setGyms([]);
+        }
+      } finally {
+        if (inFlightLoadRef.current?.key === locationKey) {
+          inFlightLoadRef.current = null;
+        }
+      }
+    })();
+
+    inFlightLoadRef.current = { key: locationKey, promise: loadPromise };
+    return loadPromise;
   }, []);
 
   // ===============================================
@@ -255,6 +292,15 @@ export default function App() {
   // 3. INITIAL LOAD EFFECT
   // ===============================================
   useEffect(() => {
+    if (currentUser?.role === 'admin' || currentUser?.role === 'owner') {
+      return;
+    }
+
+    if (hasInitializedLocationRef.current) {
+      return;
+    }
+    hasInitializedLocationRef.current = true;
+
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         async (position) => {
@@ -271,7 +317,7 @@ export default function App() {
     } else {
       loadGymsAtLocation(32.7157, -117.1611);
     }
-  }, [loadGymsAtLocation]);
+  }, [loadGymsAtLocation, currentUser?.role]);
 
 
   // ===============================================
